@@ -42,6 +42,9 @@ config.getConfig('rubicon', config => {
 
 const GVLID = 52;
 
+// Record ad units in case we need to change the adUnitCode for twins
+var AD_UNIT_MAP = {};
+
 var sizeMap = {
   1: '468x60',
   2: '728x90',
@@ -302,6 +305,21 @@ export const spec = {
 
     if (filteredRequests && filteredRequests.length) {
       const data = converter.toORTB({bidRequests: filteredRequests, bidderRequest});
+
+      // ensure unique imp IDs for twin adunits
+      var adUnitCodeCount = {};
+      data.imp = data.imp.map(function(imp) {
+        var adUnitCode = imp.id;
+        if (adUnitCodeCount[adUnitCode]) {
+          adUnitCodeCount[adUnitCode] += 1;
+          imp.id = adUnitCode + adUnitCodeCount[adUnitCode];
+        } else {
+          adUnitCodeCount[adUnitCode] = 1;
+        }
+        // update adunit map so we can translate back to original adunit code
+        AD_UNIT_MAP[imp.id] = adUnitCode;
+        return imp;
+      });
 
       filteredHttpRequest.push({
         method: 'POST',
@@ -647,6 +665,14 @@ export const spec = {
       if (Array.isArray(responseErrors) && responseErrors.length > 0) {
         logWarn('Rubicon: Error in video response');
       }
+      // Update seatbid for twin adunits using ad unit map
+      responseObj.seatbid = responseObj.seatbid.map(function(seatbid) {
+        seatbid.bid = seatbid.bid.map(function(bid) {
+          bid.impid = AD_UNIT_MAP[bid.impid] || bid.impid;
+          return bid;
+        });
+        return seatbid;
+      });
       const bids = converter.fromORTB({request: data, response: responseObj}).bids;
       return bids;
     }
